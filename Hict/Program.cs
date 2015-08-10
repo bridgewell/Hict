@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -37,7 +38,13 @@ namespace Hict
                                 try
                                 {
                                     var tsdb = new OpenTSDB(setting.TSDBHost, setting.TSDBPort);
-                                    tsdb.AddData(HostInfoToTSDB(h, setting.MetricHeader).ToList());
+                                    var data = HostInfoToTSDB(h, setting.MetricHeader).ToList();
+                                    if (data.Count == 0)
+                                    {
+                                        logger.Warn("cloud not get data from {0}", h.host);
+                                        return;
+                                    }
+                                    tsdb.AddData(data);
                                     logger.Info("{0} data collected.", h.host);
                                 }
                                 catch (Exception ex)
@@ -102,9 +109,11 @@ namespace Hict
                 return foundstat.val;
         }
 
+        static Regex invalidateRegex = new Regex(@"[\\/\(\)\[\]]+", RegexOptions.Compiled);
+
         static string FixMetricName(string name)
         {
-            return name.Replace("\\", "_").Replace("/", "_").Replace(" ", string.Empty);
+            return invalidateRegex.Replace(name, m => "_").Replace(" ", string.Empty);
         }
 
         static IEnumerable<TSDBData> HostInfoToTSDB(hostinfo info, string metricHeader)
@@ -182,12 +191,13 @@ namespace Hict
             // update volumes
             foreach (var v in volumes)
             {
-                var volMetric = metricHeader + ".Volume." + FixMetricName(v.name);
+                var volMetric = metricHeader + ".Volume";
                 yield return new TSDBData()
                 {
                     metric = volMetric + ".Usage",
                     tags = new Dictionary<string, string>() { 
                         {"Host",nodeinfo.name},
+                        {"Volume",FixMetricName(v.name)},
                     },
                     timestamp = timestamp,
                     value = v.usage,
@@ -198,6 +208,7 @@ namespace Hict
                     metric = volMetric + ".Capacity",
                     tags = new Dictionary<string, string>() { 
                         {"Host",nodeinfo.name},
+                        {"Volume",FixMetricName(v.name)},
                     },
                     timestamp = timestamp,
                     value = v.capacity,
@@ -208,12 +219,13 @@ namespace Hict
 
             foreach (var n in nics)
             {
-                var nicMetric = metricHeader + ".NIC." + FixMetricName(n.caption);
+                var nicMetric = metricHeader + ".NIC";
                 yield return new TSDBData()
                 {
                     metric = nicMetric + ".InBps",
                     tags = new Dictionary<string, string>() { 
                         {"Host",nodeinfo.name},
+                        {"NIC", FixMetricName(n.caption)},
                     },
                     timestamp = timestamp,
                     value = n.InBps
@@ -224,6 +236,7 @@ namespace Hict
                     metric = nicMetric + ".OutBps",
                     tags = new Dictionary<string, string>() { 
                         {"Host",nodeinfo.name},
+                        {"NIC", FixMetricName(n.caption)},
                     },
                     timestamp = timestamp,
                     value = n.OutBps

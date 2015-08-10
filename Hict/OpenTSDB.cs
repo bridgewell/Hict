@@ -42,6 +42,8 @@ namespace Hict
                     request.ServicePoint.Expect100Continue = false;
                     request.Method = "POST";
 
+                    logger.Debug("posting " + postdata + " to opentsdb.");
+
                     using (var reqstream = new StreamWriter(request.GetRequestStream(), Encoding.ASCII))
                     {
                         reqstream.Write(postdata);
