@@ -1,0 +1,12 @@
+﻿{
+    "TSDBHost" :  "tsdb",
+    "TSDBPort" : 8080,
+    "MetricHeader" : "Hict",
+
+    "Windows": [
+        { "host": "windowshost1", "userid": "administrator", "pass": "xxx" },
+    ],
+    "Linux": [
+        {"host":"linuxhost1", "userid":"root", "pass":"xxx"},
+    ]
+}
