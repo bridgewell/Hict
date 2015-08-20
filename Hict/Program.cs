@@ -36,10 +36,35 @@ namespace Hict
                             var poolthread = new Thread(() =>
                             {
                                 var tsdb = new OpenTSDB(setting.TSDBHost, setting.TSDBPort);
+                                List<TSDBData> data = null;
                                 try
-                                {                                    
-                                    var data = HostInfoToTSDB(h, setting.MetricHeader).ToList();
-                                    if (data.Count == 0)
+                                {
+                                    data = HostInfoToTSDB(h, setting.MetricHeader).ToList();
+                                }
+                                catch (Exception ex)
+                                {
+                                    logger.Error("collect data from {0} raise {1}", h.host, ex.ToString());
+                                    try
+                                    {
+                                        tsdb.AddData(new TSDBData[] {new TSDBData()
+                                        {
+                                        metric = setting.MetricHeader + ".Status",
+                                        tags = new Dictionary<string, string>() { 
+                                            {"Host",h.host},
+                                        },
+                                        timestamp = OpenTSDB.GetUnixTime(DateTime.UtcNow),
+                                        value = -1,
+                                        }});
+                                    }
+                                    catch (Exception ex2)
+                                    {
+                                        logger.Fatal(ex2.ToString());
+                                    }
+                                    return;
+                                }
+                                try
+                                {
+                                    if ((data == null) || (data.Count == 0))
                                     {
                                         logger.Warn("cloud not get data from {0}", h.host);
                                         return;
@@ -47,18 +72,9 @@ namespace Hict
                                     tsdb.AddData(data);
                                     logger.Info("{0} data collected.", h.host);
                                 }
-                                catch (Exception ex)
+                                catch (Exception ex3)
                                 {
-                                    logger.Fatal("collect data from {0} raise {1}", h.host, ex.ToString());
-                                    tsdb.AddData(new TSDBData[] {new TSDBData()
-                                    {
-                                        metric = setting.MetricHeader + ".Status",
-                                        tags = new Dictionary<string, string>() { 
-                                            {"Host",h.host},
-                                        },
-                                        timestamp = OpenTSDB.GetUnixTime(DateTime.UtcNow),
-                                        value = -1,
-                                    }});
+                                    logger.Fatal(ex3.ToString());
                                 }
                             });
                             poolthread.Start();

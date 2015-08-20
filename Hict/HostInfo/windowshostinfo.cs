@@ -110,8 +110,17 @@ namespace Hict
             }
             catch (Exception ex)
             {
-                logger.Fatal(@"connect to \\" + host + @"\root\cimv2 failed by "+ex.ToString());
-                throw;
+                scope = new ManagementScope(@"\\" + host + @"\root\cimv2");
+                try
+                {
+                    // re connect for current user credentials (bcz windows only support credential at network ><)
+                    scope.Connect();
+                }
+                catch (Exception ex2)
+                {
+                    logger.Fatal(@"connect to \\" + host + @"\root\cimv2 failed by " + ex2.ToString());
+                    throw ex;
+                }
             }
 
             var r = new List<Tuple<T, ManagementBaseObject>>();
