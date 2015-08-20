@@ -35,9 +35,9 @@ namespace Hict
                         {
                             var poolthread = new Thread(() =>
                             {
+                                var tsdb = new OpenTSDB(setting.TSDBHost, setting.TSDBPort);
                                 try
-                                {
-                                    var tsdb = new OpenTSDB(setting.TSDBHost, setting.TSDBPort);
+                                {                                    
                                     var data = HostInfoToTSDB(h, setting.MetricHeader).ToList();
                                     if (data.Count == 0)
                                     {
@@ -50,6 +50,15 @@ namespace Hict
                                 catch (Exception ex)
                                 {
                                     logger.Fatal("collect data from {0} raise {1}", h.host, ex.ToString());
+                                    tsdb.AddData(new TSDBData[] {new TSDBData()
+                                    {
+                                        metric = setting.MetricHeader + ".Status",
+                                        tags = new Dictionary<string, string>() { 
+                                            {"Host",h.host},
+                                        },
+                                        timestamp = OpenTSDB.GetUnixTime(DateTime.UtcNow),
+                                        value = -1,
+                                    }});
                                 }
                             });
                             poolthread.Start();
@@ -137,7 +146,18 @@ namespace Hict
             }
 
             if (couldcontinue == false)
+            {
+                yield return new TSDBData()
+                {
+                    metric = metricHeader + ".Status",
+                    tags = new Dictionary<string, string>() { 
+                        {"Host",nodeinfo.name},
+                    },
+                    timestamp = timestamp,
+                    value = -1,
+                };
                 yield break;
+            }
 
             nodeinfo.PoolIntervalSeconds = (int)Pollinterval.TotalSeconds;
 
@@ -242,6 +262,16 @@ namespace Hict
                     value = n.OutBps
                 };
             }
+
+            yield return new TSDBData()
+            {
+                metric = metricHeader + ".Status",
+                tags = new Dictionary<string, string>() { 
+                        {"Host",nodeinfo.name},
+                    },
+                timestamp = timestamp,
+                value = 1,
+            };
         }
     }
 }
