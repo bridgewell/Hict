@@ -29,13 +29,30 @@ namespace Hict
                 if (File.Exists(settingfile))
                 {
                     var setting = JsonConvert.DeserializeObject<HostSettings>(File.ReadAllText(settingfile));
+                    var tsdbServers = new List<List<Tuple<string, int>>>();
+                    if (string.IsNullOrWhiteSpace(setting.TSDBHost) == false)
+                    {
+                        tsdbServers.Add(new List<Tuple<string, int>>() { Tuple.Create(setting.TSDBHost, setting.TSDBPort) });
+                    }
+
+                    if (string.IsNullOrWhiteSpace(setting.MultipleTSDB) == false)
+                    {
+                        tsdbServers.AddRange(setting.MultipleTSDB.Split(new char[] { ',' })
+                            .Select(t => new List<Tuple<string, int>>(t.Split(new char[] { ';' }).Select(x =>
+                            {
+                                var data = x.Split(new char[] { ':' });
+                                return Tuple.Create(data[0], Convert.ToInt32(data[1]));
+                            }))));
+                    }
+
+                    var tsdbs = tsdbServers.Select(t => new OpenTSDB(t));
+
                     MonitorTask = Task.Factory.StartNew(() =>
                     {
                         Parallel.ForEach(CreateHostInfoBySettings(setting), h =>
                         {
                             var poolthread = new Thread(() =>
                             {
-                                var tsdb = new OpenTSDB(setting.TSDBHost, setting.TSDBPort);
                                 List<TSDBData> data = null;
                                 try
                                 {
@@ -44,9 +61,11 @@ namespace Hict
                                 catch (Exception ex)
                                 {
                                     logger.Error("collect data from {0} raise {1}", h.host, ex.ToString());
-                                    try
+                                    foreach (var tsdb in tsdbs)
                                     {
-                                        tsdb.AddData(new TSDBData[] {new TSDBData()
+                                        try
+                                        {
+                                            tsdb.AddData(new TSDBData[] {new TSDBData()
                                         {
                                         metric = setting.MetricHeader + ".Status",
                                         tags = new Dictionary<string, string>() { 
@@ -55,27 +74,34 @@ namespace Hict
                                         timestamp = OpenTSDB.GetUnixTime(DateTime.UtcNow),
                                         value = -1,
                                         }});
-                                    }
-                                    catch (Exception ex2)
-                                    {
-                                        logger.Fatal(ex2.ToString());
+                                        }
+                                        catch (Exception ex2)
+                                        {
+                                            logger.Fatal(ex2.ToString());
+                                        }
                                     }
                                     return;
                                 }
-                                try
+
+                                if ((data == null) || (data.Count == 0))
                                 {
-                                    if ((data == null) || (data.Count == 0))
+                                    logger.Warn("cloud not get data from {0}", h.host);
+                                    return;
+                                }
+
+                                foreach (var tsdb in tsdbs)
+                                {
+                                    try
                                     {
-                                        logger.Warn("cloud not get data from {0}", h.host);
-                                        return;
+                                        tsdb.AddData(data);
                                     }
-                                    tsdb.AddData(data);
-                                    logger.Info("{0} data collected.", h.host);
+                                    catch (Exception ex3)
+                                    {
+                                        logger.Fatal(ex3.ToString());
+                                    }
                                 }
-                                catch (Exception ex3)
-                                {
-                                    logger.Fatal(ex3.ToString());
-                                }
+
+                                logger.Info("{0} data collected.", h.host);
                             });
                             poolthread.Start();
                             if (poolthread.Join(PollTimedout) == false)

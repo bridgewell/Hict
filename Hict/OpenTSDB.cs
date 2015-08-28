@@ -16,33 +16,31 @@ namespace Hict
 
         public static DateTime unixtimebegin = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        public string Host;
-        public int Port;
+        public List<Tuple<string, int>> TSDBPorts;
 
-        public OpenTSDB(string host, int port)
+        public OpenTSDB(IEnumerable<Tuple<string, int>> tsdb)
         {
-            Host = host;
-            Port = port;
+            TSDBPorts = new List<Tuple<string, int>>(tsdb);
         }
 
         public string AddData(ICollection<TSDBData> data)
         {
-            int trycount = 3;
-            while (true)
+            for (int i=0;i<TSDBPorts.Count;i++)
             {
+                var tsdb = TSDBPorts[i];
                 string postdata = string.Empty;
                 try
                 {
                     var lst = data.ToList();
+                    if (lst.Count == 0)
+                        return string.Empty;
 
                     postdata = JsonConvert.SerializeObject(lst);
 
-                    var request = WebRequest.Create(string.Format("http://{0}:{1}/api/put", Host, Port)) as HttpWebRequest;
+                    var request = WebRequest.Create(string.Format("http://{0}:{1}/api/put", tsdb.Item1, tsdb.Item2)) as HttpWebRequest;
                     request.SendChunked = false;
                     request.ServicePoint.Expect100Continue = false;
                     request.Method = "POST";
-
-                    logger.Debug("posting " + postdata + " to opentsdb.");
 
                     using (var reqstream = new StreamWriter(request.GetRequestStream(), Encoding.ASCII))
                     {
@@ -56,22 +54,19 @@ namespace Hict
                 }
                 catch (Exception ex)
                 {
-                    logger.Fatal("post " + postdata + " raise " + ex.ToString());
+                    logger.Fatal("post " + postdata + " to "+tsdb.Item1+":"+tsdb.Item2+" raise " + ex.ToString());
 
                     var wex = ex as WebException;
-                    if (wex != null)
+                    if ((wex != null) && (wex.Response != null))
                     {
                         var stream = new StreamReader(wex.Response.GetResponseStream(), Encoding.UTF8);
                         logger.Fatal("error web result is :" + stream.ReadToEnd());
                     }
-                    trycount--;
-
-                    if (trycount == 0)
+                    if (i == TSDBPorts.Count - 1)
                         throw;
-                    else
-                        Thread.Sleep(TimeSpan.FromSeconds(5));
                 }
             }
+            return null;
         }
 
         public static long GetUnixTime(DateTime dt)

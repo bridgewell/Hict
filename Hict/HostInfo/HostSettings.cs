@@ -11,6 +11,10 @@ namespace Hict
         public string TSDBHost { get; set; }
         public int TSDBPort { get; set; }
         public string MetricHeader { get; set; }
+        /// <summary>
+        /// write to multiple tsdbs.
+        /// </summary>
+        public string MultipleTSDB { get; set; }
         public hostinfo[] Windows { get; set; }
         public hostinfo[] Linux { get; set; }
     }
