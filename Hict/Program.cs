@@ -282,27 +282,54 @@ namespace Hict
             foreach (var n in nics)
             {
                 var nicMetric = metricHeader + ".NIC";
-                yield return new TSDBData()
+                if (n.IsTxRxMode)
                 {
-                    metric = nicMetric + ".InBps",
-                    tags = new Dictionary<string, string>() { 
+                    yield return new TSDBData()
+                    {
+                        metric = nicMetric + ".RxBytes",
+                        tags = new Dictionary<string, string>() {
                         {"Host",nodeinfo.name},
                         {"NIC", FixMetricName(n.caption)},
                     },
-                    timestamp = timestamp,
-                    value = n.InBps
-                };
+                        timestamp = timestamp,
+                        value = n.RxBytes
+                    };
 
-                yield return new TSDBData()
-                {
-                    metric = nicMetric + ".OutBps",
-                    tags = new Dictionary<string, string>() { 
+                    yield return new TSDBData()
+                    {
+                        metric = nicMetric + ".TxBytes",
+                        tags = new Dictionary<string, string>() {
                         {"Host",nodeinfo.name},
                         {"NIC", FixMetricName(n.caption)},
                     },
-                    timestamp = timestamp,
-                    value = n.OutBps
-                };
+                        timestamp = timestamp,
+                        value = n.TxBytes
+                    };
+                }
+                else
+                {
+                    yield return new TSDBData()
+                    {
+                        metric = nicMetric + ".InBps",
+                        tags = new Dictionary<string, string>() {
+                        {"Host",nodeinfo.name},
+                        {"NIC", FixMetricName(n.caption)},
+                    },
+                        timestamp = timestamp,
+                        value = n.InBps
+                    };
+
+                    yield return new TSDBData()
+                    {
+                        metric = nicMetric + ".OutBps",
+                        tags = new Dictionary<string, string>() {
+                        {"Host",nodeinfo.name},
+                        {"NIC", FixMetricName(n.caption)},
+                    },
+                        timestamp = timestamp,
+                        value = n.OutBps
+                    };
+                }
             }
 
             yield return new TSDBData()

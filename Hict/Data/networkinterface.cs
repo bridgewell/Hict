@@ -18,5 +18,9 @@ namespace Hict
         public int MTU { get; set; }
         public string MacAddress { get; set; }
         public string NetworkAddress { get; set; }
+        public float TxBytes { get; set; }
+        public float RxBytes { get; set; }
+
+        public bool IsTxRxMode { get; set; }
     }
 }

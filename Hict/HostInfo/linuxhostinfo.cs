@@ -10,7 +10,7 @@ namespace Hict
 {
     public class linuxhostinfo : hostinfo
     {
-        protected enum StatisticsType
+        public enum StatisticsType
         {
             None,
 
@@ -37,6 +37,10 @@ namespace Hict
             InterfaceIp,
 
             CPUCores,
+
+            InterfaceTx,
+
+            InterfaceRx,
         }
 
 
@@ -87,34 +91,77 @@ namespace Hict
 
 
         private static Regex ipregex = new Regex(@"inet addr:(?<ip>\d+\.\d+\.\d+\.\d+)", RegexOptions.Compiled);
+        private static Regex RxBytes = new Regex(@"RX bytes:(?<readbytes>\d+)\s+\([^\)]+\)\s+TX bytes:(?<writebytes>\d+)", RegexOptions.Compiled);
+
+        private static Regex CoreOSipregex = new Regex(@"inet (?<ip>\d+\.\d+\.\d+\.\d+)\s+netmask ", RegexOptions.Compiled);
+        private static Regex CoreOSRxBytes = new Regex(@"RX packets (\d+)\s+bytes (?<readbytes>\d+)|TX packets (\d+)\s+bytes (?<writebytes>\d+)", RegexOptions.Compiled);
+
+        public class InterfaceRegex
+        {
+            public Regex regex;
+            public List<Tuple<StatisticsType, string>> regdata;
+
+            public InterfaceRegex(Regex r, params Tuple<StatisticsType, string>[] d)
+            {
+                regex = r;
+                regdata = d.ToList();
+            }
+        }
+
+        private static List<InterfaceRegex> linuxregex = new List<InterfaceRegex>() {
+               new InterfaceRegex(ipregex, Tuple.Create(StatisticsType.InterfaceIp, "ip")),
+               new InterfaceRegex(RxBytes, Tuple.Create(StatisticsType.InterfaceRx, "readbytes"), Tuple.Create(StatisticsType.InterfaceTx, "writebytes")),
+        };
+
+        private static List<InterfaceRegex> coreosregex = new List<InterfaceRegex>() {
+               new InterfaceRegex(CoreOSipregex, Tuple.Create(StatisticsType.InterfaceIp, "ip")),
+               new InterfaceRegex(CoreOSRxBytes, Tuple.Create(StatisticsType.InterfaceRx, "readbytes"), Tuple.Create(StatisticsType.InterfaceTx, "writebytes")),
+        };
+
 
         private IEnumerable<statistics> GetInterfaceIP(SshClient client)
         {
             var cmdresult = client.CreateCommand("ifconfig").Execute();
             var lines = cmdresult.Split(new char[] { '\r', '\n' });
-
+            var regexlist = linuxregex;
             string currenteth = string.Empty;
             foreach (var l in lines)
             {
                 if (l.Contains("Link encap:"))
                 {
-                    currenteth = l.Split(' ')[0];
+                    currenteth = l.Split(' ').FirstOrDefault();
+                    continue;
+                }
+                if (l.Contains(": flags="))
+                {
+                    currenteth = l.Split(':').FirstOrDefault();
+                    regexlist = coreosregex;
                     continue;
                 }
 
-                var m = ipregex.Match(l);
-                if (m.Success)
+                if (currenteth.Length == 0)
+                    continue;
+
+                var foundmatch = regexlist.Select(r => Tuple.Create(r , r.regex.Match(l))).Where(r => r.Item2.Success).FirstOrDefault();
+
+                if (foundmatch == null)
+                    continue;
+
+                foreach (var rd in foundmatch.Item1.regdata)
                 {
-                    if (currenteth.Length == 0)
-                        continue;
-                    var ip = m.Groups["ip"].Value;
-                    if (ip == "127.0.0.1")
+                    var val = foundmatch.Item2.Groups[rd.Item2].Value;
+                    if (rd.Item1 == StatisticsType.InterfaceIp)
+                    {
+                        if (val == "127.0.0.1")
+                            continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(val))
                         continue;
 
-                    yield return new statistics()
-                    {
-                        type = StatisticsType.InterfaceIp.ToString(),
-                        val = ip,
+                    yield return new statistics() {
+                        type = rd.Item1.ToString(),
+                        val = val,
                         category = currenteth,
                     };
                 }
@@ -324,6 +371,36 @@ namespace Hict
                             foundnic.NetworkAddress = s.val;
                             yield return s;
                             break;
+                        case StatisticsType.InterfaceRx:
+                            var foundrxnic = nics.FirstOrDefault(nic => nic.caption == s.category);
+                            if (foundrxnic == null)
+                            {
+                                foundrxnic = new networkinterface() { caption = s.category };
+                                nics.Add(foundrxnic);
+                            }
+                            float inbps;
+                            if (float.TryParse(s.val, out inbps))
+                            {
+                                foundrxnic.LastSync = DateTime.UtcNow;
+                                foundrxnic.InBps = inbps;
+                            }
+                            yield return s;
+                            break;
+                        case StatisticsType.InterfaceTx:
+                            var foundtxnic = nics.FirstOrDefault(nic => nic.caption == s.category);
+                            if (foundtxnic == null)
+                            {
+                                foundtxnic = new networkinterface() { caption = s.category };
+                                nics.Add(foundtxnic);
+                            }
+                            float outbps;
+                            if (float.TryParse(s.val, out outbps))
+                            {
+                                foundtxnic.LastSync = DateTime.UtcNow;
+                                foundtxnic.OutBps = outbps;
+                            }
+                            yield return s;
+                            break;
                     }
                 }
             }
@@ -378,6 +455,18 @@ namespace Hict
             yield return new statistics() { nodeid = n.id, begintime = time, endtime = time, category = "MEM", type = "FREE", cap = n.TotalMemory, avg = Convert.ToDouble(n.TotalMemory - n.MemoryUsed) };
             yield return new statistics() { nodeid = n.id, begintime = time, endtime = time, category = "MEM", type = "USE", cap = n.TotalMemory, avg = Convert.ToDouble(n.MemoryUsed) };
             yield return new statistics() { nodeid = n.id, begintime = time, endtime = time, category = "CPU", type = "CPU", avg = Convert.ToDouble(n.CPULoad) };
+
+            nics.RemoveAll(ni => string.IsNullOrWhiteSpace(ni.NetworkAddress) == true);            
+            foreach (var ni in nics)
+            {
+                ni.IsTxRxMode = true;
+                ni.TxBytes = ni.OutBps;
+                ni.RxBytes = ni.InBps;
+                ni.OutBps = 0;
+                ni.InBps = 0;
+                yield return new statistics() { nodeid = n.id, begintime = time, endtime = time, category = "NETWORK", type = "OUTBPS", avg = Convert.ToDouble(ni.OutBps), val = ni.caption };
+                yield return new statistics() { nodeid = n.id, begintime = time, endtime = time, category = "NETWORK", type = "INBPS", avg = Convert.ToDouble(ni.InBps), val = ni.caption };
+            }
         }
     }
 }
